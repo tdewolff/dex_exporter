@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -15,12 +16,23 @@ func ListenAndServe(host string) error {
 	var listener net.Listener
 	var err error
 	if strings.HasPrefix(host, "unix://") {
+		path := host[7:]
+		if _, err := os.Stat(path); err == nil {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+		}
 		listener, err = net.Listen("unix", host[7:])
+		if err != nil {
+			return err
+		} else if os.Chmod(path, 0770); err != nil {
+			return err
+		}
 	} else {
 		listener, err = net.Listen("tcp", host)
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
 	}
 	return (&http.Server{Addr: host, Handler: nil}).Serve(listener)
 

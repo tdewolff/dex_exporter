@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -36,6 +37,7 @@ func (e *Nginx) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (e *Nginx) Collect(ch chan<- prometheus.Metric) {
+	t := time.Now()
 	req, err := e.updateReq()
 	if err != nil {
 		Error.Println(err)
@@ -43,6 +45,7 @@ func (e *Nginx) Collect(ch chan<- prometheus.Metric) {
 		e.req.Add(math.Max(0.0, float64(req)))
 		e.req.Collect(ch)
 	}
+	Info.Println("collect duration for nginx:", time.Since(t))
 }
 
 const templateMetrics string = `Active connections: %d

@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/coreos/go-systemd/v22/dbus"
 	"github.com/prometheus/client_golang/prometheus"
@@ -61,7 +62,7 @@ func NewNode() (*Node, error) {
 			Help: "Swap size in bytes.",
 		}, []string{"type"}),
 		net: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "node_network_bytes_total",
+			Name: "node_net_bytes_total",
 			Help: "Network traffic in bytes.",
 		}, []string{"interface", "type"}),
 		disk: prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -109,6 +110,11 @@ func (e *Node) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (e *Node) Collect(ch chan<- prometheus.Metric) {
+	t0 := time.Now()
+	defer func() {
+		Info.Println("collect duration total:", time.Since(t0))
+	}()
+	t := time.Now()
 	cpuStat, err := e.updateCPUStat()
 	if err != nil {
 		Error.Println(err)
@@ -120,7 +126,9 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		e.cpu.WithLabelValues("rest").Add(math.Max(0.0, cpuStat.IRQ+cpuStat.SoftIRQ+cpuStat.Steal+cpuStat.Guest+cpuStat.GuestNice))
 		e.cpu.Collect(ch)
 	}
+	Info.Println("collect duration for node_cpu:", time.Since(t))
 
+	t = time.Now()
 	memStat, err := e.proc.Meminfo()
 	if err != nil {
 		Error.Println(err)
@@ -138,7 +146,9 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		e.swap.WithLabelValues("used").Set(float64(*memStat.SwapTotal - *memStat.SwapFree))
 		e.swap.Collect(ch)
 	}
+	Info.Println("collect duration for node_mem/node_swap:", time.Since(t))
 
+	t = time.Now()
 	netStats, err := e.updateNetStats()
 	if err != nil {
 		Error.Println(err)
@@ -151,7 +161,9 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		}
 		e.net.Collect(ch)
 	}
+	Info.Println("collect duration for node_net:", time.Since(t))
 
+	t = time.Now()
 	diskStats, err := readDiskStats()
 	if err != nil {
 		Error.Println(err)
@@ -164,22 +176,24 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		}
 		e.disk.Collect(ch)
 	}
+	Info.Println("collect duration for node_disk:", time.Since(t))
 
+	t = time.Now()
 	ioStats, err := e.updateDiskIOStats()
 	if err != nil {
 		Error.Println(err)
 	} else {
 		for _, stat := range ioStats {
 			device := stat.Info.DeviceName
-			if device != "sda" && strings.HasPrefix(device, "sda") {
-				e.diskio.WithLabelValues(device, "total").Add(float64(stat.IOStats.IOsTotalTicks) / 1000.0)
-				e.diskio.WithLabelValues(device, "read").Add(float64(stat.IOStats.ReadTicks) / 1000.0)
-				e.diskio.WithLabelValues(device, "write").Add(float64(stat.IOStats.WriteTicks) / 1000.0)
-			}
+			e.diskio.WithLabelValues(device, "total").Add(float64(stat.IOStats.IOsTotalTicks) / 1000.0)
+			e.diskio.WithLabelValues(device, "read").Add(float64(stat.IOStats.ReadTicks) / 1000.0)
+			e.diskio.WithLabelValues(device, "write").Add(float64(stat.IOStats.WriteTicks) / 1000.0)
 		}
 		e.diskio.Collect(ch)
 	}
+	Info.Println("collect duration for node_diskio:", time.Since(t))
 
+	t = time.Now()
 	serviceStats, err := readSystemd(context.TODO(), e.services)
 	if err != nil {
 		Error.Println(err)
@@ -193,6 +207,7 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		}
 		e.service.Collect(ch)
 	}
+	Info.Println("collect duration for node_service:", time.Since(t))
 }
 
 func (e *Node) updateCPUStat() (procfs.CPUStat, error) {
@@ -322,7 +337,7 @@ func readDiskStats() (map[string]diskStat, error) {
 		if len(fields) < 4 {
 			mounts.Close()
 			return nil, fmt.Errorf("/proc/mounts:%v: bad mount point", n)
-		} else if !strings.HasPrefix(fields[0], "/dev/sda") {
+		} else if !strings.HasPrefix(fields[0], "/dev/") {
 			continue
 		}
 

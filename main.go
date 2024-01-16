@@ -11,6 +11,7 @@ import (
 	"github.com/tdewolff/argp"
 )
 
+var basicAuth = ""
 var listenAddress = ":9900"
 var telemetryPath = "/metrics"
 
@@ -27,6 +28,7 @@ func main() {
 	cmd := argp.New("Exporter for Prometheus by Taco de Wolff")
 	cmd.AddOpt(argp.Count{&verbose}, "v", "verbose", nil, "Log verbosity, can specify multiple times to increase verbosity.")
 	cmd.AddOpt(&quiet, "q", "quiet", false, "Quiet mode to suppress all output")
+	cmd.AddOpt(&basicAuth, "", "basic-auth", "", "Basic authentication as username:password.")
 	cmd.AddOpt(&listenAddress, "", "listen-address", ":9900", "Path under which to expose metrics.")
 	cmd.AddOpt(&telemetryPath, "", "telemetry-path", "/metrics", "Path under which to expose metrics.")
 	cmd.Parse()
@@ -35,12 +37,12 @@ func main() {
 	Warning = log.New(ioutil.Discard, "", 0)
 	Info = log.New(ioutil.Discard, "", 0)
 	if !quiet {
-		Error = log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lmsgprefix)
+		Error = log.New(os.Stderr, "ERROR: ", 0)
 		if 0 < verbose {
-			Warning = log.New(os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lmsgprefix)
+			Warning = log.New(os.Stderr, "WARNING: ", 0)
 		}
 		if 1 < verbose {
-			Info = log.New(os.Stderr, "INFO: ", log.Ldate|log.Ltime|log.Lmsgprefix)
+			Info = log.New(os.Stderr, "INFO: ", 0)
 		}
 	}
 
@@ -52,16 +54,17 @@ func main() {
 		Error.Println(err)
 		os.Exit(1)
 	}
-	node.AddServices("ntpd", "bluetooth")
+	node.AddServices("fail2ban", "nginx")
 	registry.MustRegister(node)
 
-	nginx, err := NewNginx("unix:///var/run/mysqld/d.sock")
-	if err != nil {
-		Error.Println(err)
-		os.Exit(1)
-	}
-	registry.MustRegister(nginx)
+	//nginx, err := NewNginx("unix:///var/run/mysqld/d.sock")
+	//if err != nil {
+	//	Error.Println(err)
+	//	os.Exit(1)
+	//}
+	//registry.MustRegister(nginx)
 
+	// TODO: use basic auth
 	http.Handle(telemetryPath, promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	if err := ListenAndServe(listenAddress); err != nil && err != http.ErrServerClosed {
 		Error.Println(err)
