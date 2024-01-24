@@ -59,12 +59,9 @@ func main() {
 	logOptions := LogOptions{
 		Level: "info",
 	}
-	nginxOptions := NginxOptions{
-		URI: "http://127.0.0.1:8080/stub_status",
-	}
-	redisOptions := RedisOptions{
-		URI: "tcp://127.0.0.1:6379",
-	}
+	nginxOptions := NginxOptions{}
+	redisOptions := RedisOptions{}
+	memcacheOptions := MemcacheOptions{}
 
 	cmd := argp.New("Exporter for Prometheus by Taco de Wolff")
 	cmd.AddOpt(&version, "", "version", "Show version")
@@ -72,6 +69,7 @@ func main() {
 	cmd.AddOpt(&logOptions, "", "log", "")
 	cmd.AddOpt(&nginxOptions, "", "nginx", "")
 	cmd.AddOpt(&redisOptions, "", "redis", "")
+	cmd.AddOpt(&memcacheOptions, "", "memcache", "")
 	cmd.Parse()
 
 	if version {
@@ -130,22 +128,37 @@ func main() {
 	exporter.AddCollector(node)
 
 	// nginx exporter
-	nginx, err := NewNginx(nginxOptions)
-	if err != nil {
-		Error.Println(err)
-		os.Exit(1)
+	if nginxOptions.URI != "" {
+		nginx, err := NewNginx(nginxOptions)
+		if err != nil {
+			Error.Println(err)
+			os.Exit(1)
+		}
+		defer nginx.Close()
+		exporter.AddCollector(nginx, "nginx")
 	}
-	defer nginx.Close()
-	exporter.AddCollector(nginx, "nginx")
 
 	// redis exporter
-	redis, err := NewRedis(redisOptions)
-	if err != nil {
-		Error.Println(err)
-		os.Exit(1)
+	if redisOptions.URI != "" {
+		redis, err := NewRedis(redisOptions)
+		if err != nil {
+			Error.Println(err)
+			os.Exit(1)
+		}
+		defer redis.Close()
+		exporter.AddCollector(redis, "redis")
 	}
-	defer redis.Close()
-	exporter.AddCollector(redis, "redis")
+
+	// memcache exporter
+	if memcacheOptions.URI != "" {
+		memcache, err := NewMemcache(memcacheOptions)
+		if err != nil {
+			Error.Println(err)
+			os.Exit(1)
+		}
+		defer memcache.Close()
+		exporter.AddCollector(memcache, "memcache")
+	}
 
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(exporter)
@@ -301,7 +314,8 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	Info.Println("collect duration for node_service:", time.Since(t))
 
 	wg := sync.WaitGroup{}
-	for _, collector := range e.collectors {
+	for i, collector := range e.collectors {
+		fmt.Printf("%d %x %x\n", i, collector.services, activeServices)
 		if collector.services&activeServices == activeServices {
 			wg.Add(1)
 			go func(collector prometheus.Collector) {
