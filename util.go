@@ -136,7 +136,6 @@ func newClient(uri string) (*Client, error) {
 }
 
 func (c *Client) Get(ctx context.Context) ([]byte, error) {
-	fmt.Println(c.uri)
 	req, err := http.NewRequestWithContext(ctx, "GET", c.uri, nil)
 	if err != nil {
 		return nil, err

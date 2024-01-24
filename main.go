@@ -62,6 +62,7 @@ func main() {
 	nginxOptions := NginxOptions{}
 	redisOptions := RedisOptions{}
 	memcacheOptions := MemcacheOptions{}
+	phpfpmOptions := PHPFPMOptions{}
 
 	cmd := argp.New("Exporter for Prometheus by Taco de Wolff")
 	cmd.AddOpt(&version, "", "version", "Show version")
@@ -70,6 +71,7 @@ func main() {
 	cmd.AddOpt(&nginxOptions, "", "nginx", "")
 	cmd.AddOpt(&redisOptions, "", "redis", "")
 	cmd.AddOpt(&memcacheOptions, "", "memcache", "")
+	cmd.AddOpt(&phpfpmOptions, "", "phpfpm", "")
 	cmd.Parse()
 
 	if version {
@@ -150,7 +152,7 @@ func main() {
 	}
 
 	// memcache exporter
-	if memcacheOptions.URI != "" {
+	if 0 < len(memcacheOptions.URI) {
 		memcache, err := NewMemcache(memcacheOptions)
 		if err != nil {
 			Error.Println(err)
@@ -158,6 +160,17 @@ func main() {
 		}
 		defer memcache.Close()
 		exporter.AddCollector(memcache, "memcache")
+	}
+
+	// phpfpm exporter
+	if phpfpmOptions.URI != "" {
+		phpfpm, err := NewPHPFPM(phpfpmOptions)
+		if err != nil {
+			Error.Println(err)
+			os.Exit(1)
+		}
+		defer phpfpm.Close()
+		exporter.AddCollector(phpfpm, "phpfpm")
 	}
 
 	registry := prometheus.NewRegistry()

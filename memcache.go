@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -10,30 +13,44 @@ import (
 )
 
 type MemcacheOptions struct {
-	URI string `desc:"A URI or unix socket path for connecting to the Memcache server."`
+	URI []string `desc:"A URI or unix socket path for connecting to the Memcache server."`
 }
 
 type Memcache struct {
-	client *memcache.Client
-	stats  map[string]memcacheStats
+	uris     []string
+	uriGlobs []string
+	stats    map[string]memcacheStats
 
 	mem *prometheus.GaugeVec
 	key *prometheus.CounterVec
 }
 
 func NewMemcache(opts MemcacheOptions) (*Memcache, error) {
-	if strings.HasPrefix(opts.URI, "unix://") {
-		opts.URI = opts.URI[7:]
-	} else if strings.HasPrefix(opts.URI, "unix:") {
-		opts.URI = opts.URI[5:]
-	}
-	client, err := memcache.New(opts.URI)
-	if err != nil {
-		return nil, err
+	var uris, uriGlobs []string
+	for i := range opts.URI {
+		if strings.HasPrefix(opts.URI[i], "unix:") {
+			uri := opts.URI[i][7:]
+			if strings.HasPrefix(uri, "//") {
+				uri = uri[2:]
+			}
+			info, err := os.Stat(uri)
+			if err != nil {
+				return nil, err
+			} else if info.IsDir() {
+				uriGlobs = append(uriGlobs, path.Join(uri, "*"))
+			} else if strings.ContainsRune(uri, '*') {
+				uriGlobs = append(uriGlobs, uri)
+			} else {
+				uris = append(uris, uri)
+			}
+		} else {
+			uris = append(uris, opts.URI[i])
+		}
 	}
 	e := &Memcache{
-		client: client,
-		stats:  map[string]memcacheStats{},
+		uris:     uris,
+		uriGlobs: uriGlobs,
+		stats:    map[string]memcacheStats{},
 
 		mem: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "memcache_mem_bytes",
@@ -49,7 +66,6 @@ func NewMemcache(opts MemcacheOptions) (*Memcache, error) {
 }
 
 func (e *Memcache) Close() error {
-	//return e.client.Close()
 	return nil
 }
 
@@ -73,7 +89,7 @@ func (e *Memcache) Collect(ch chan<- prometheus.Metric) {
 		e.mem.Collect(ch)
 		e.key.Collect(ch)
 	}
-	Debug.Println("collect duration for redis:", time.Since(t))
+	Debug.Println("collect duration for memcache:", time.Since(t))
 }
 
 type memcacheStats struct {
@@ -84,9 +100,16 @@ type memcacheStats struct {
 }
 
 func (e *Memcache) updateStats() (map[string]memcacheStats, error) {
-	stats, err := e.client.Stats()
+	client, err := memcache.New(e.URIs()...)
 	if err != nil {
 		return nil, err
+	}
+	stats, err := client.Stats()
+	if err != nil {
+		//client.Close()
+		return nil, err
+		//} else if err := client.Close(); err != nil {
+		//	return nil, err
 	}
 
 	diffs := map[string]memcacheStats{}
@@ -111,6 +134,19 @@ func (e *Memcache) updateStats() (map[string]memcacheStats, error) {
 		diffs[name] = diff
 	}
 	return diffs, nil
+}
+
+func (e *Memcache) URIs() []string {
+	uris := e.uris
+	for _, uriGlob := range e.uriGlobs {
+		matches, err := filepath.Glob(uriGlob)
+		if err != nil {
+			Warning.Printf("memcache: uri %v: %v", uriGlob, err)
+			continue
+		}
+		uris = append(uris, matches...)
+	}
+	return uris
 }
 
 func memcacheGetUint64(stats map[string]string, key string) uint64 {
