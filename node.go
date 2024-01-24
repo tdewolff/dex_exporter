@@ -2,14 +2,12 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"math"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/coreos/go-systemd/v22/dbus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/procfs"
 	"github.com/prometheus/procfs/blockdevice"
@@ -17,21 +15,18 @@ import (
 )
 
 type Node struct {
-	services []string
-
 	proc        procfs.FS
 	blockdevice blockdevice.FS
 	cpuStat     procfs.CPUStat
 	netStats    procfs.NetDev
 	diskioStats map[string]blockdevice.IOStats
 
-	cpu     *prometheus.CounterVec
-	mem     *prometheus.GaugeVec
-	swap    *prometheus.GaugeVec
-	net     *prometheus.CounterVec
-	disk    *prometheus.GaugeVec
-	diskio  *prometheus.CounterVec
-	service *prometheus.GaugeVec
+	cpu    *prometheus.CounterVec
+	mem    *prometheus.GaugeVec
+	swap   *prometheus.GaugeVec
+	net    *prometheus.CounterVec
+	disk   *prometheus.GaugeVec
+	diskio *prometheus.CounterVec
 }
 
 func NewNode() (*Node, error) {
@@ -44,7 +39,7 @@ func NewNode() (*Node, error) {
 		return nil, err
 	}
 
-	node := &Node{
+	e := &Node{
 		proc:        proc,
 		blockdevice: blockdev,
 		diskioStats: map[string]blockdevice.IOStats{},
@@ -68,35 +63,24 @@ func NewNode() (*Node, error) {
 		disk: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "node_disk_kilobytes",
 			Help: "Hard disk size in kilobytes.",
-		}, []string{"device", "type"}),
+		}, []string{"device", "mount", "type"}),
 		diskio: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "node_diskio_seconds_total",
 			Help: "Hard disk time in seconds.",
 		}, []string{"device", "type"}),
-		service: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "node_service_active",
-			Help: "Systemd service active.",
-		}, []string{"service"}),
 	}
-	if _, err = node.updateCPUStat(); err != nil {
+	if _, err = e.updateCPUStat(); err != nil {
 		return nil, err
-	} else if _, err = node.updateNetStats(); err != nil {
+	} else if _, err = e.updateNetStats(); err != nil {
 		return nil, err
-	} else if _, err = node.updateDiskIOStats(); err != nil {
+	} else if _, err = e.updateDiskIOStats(); err != nil {
 		return nil, err
 	}
-	return node, nil
+	return e, nil
 }
 
-func (e *Node) AddServices(services ...string) {
-	for _, service := range services {
-		for i := range e.services {
-			if service == e.services[i] {
-				return
-			}
-		}
-		e.services = append(e.services, service)
-	}
+func (e *Node) Close() error {
+	return nil
 }
 
 func (e *Node) Describe(ch chan<- *prometheus.Desc) {
@@ -106,14 +90,9 @@ func (e *Node) Describe(ch chan<- *prometheus.Desc) {
 	e.net.Describe(ch)
 	e.disk.Describe(ch)
 	e.diskio.Describe(ch)
-	e.service.Describe(ch)
 }
 
 func (e *Node) Collect(ch chan<- prometheus.Metric) {
-	t0 := time.Now()
-	defer func() {
-		Info.Println("collect duration total:", time.Since(t0))
-	}()
 	t := time.Now()
 	cpuStat, err := e.updateCPUStat()
 	if err != nil {
@@ -126,7 +105,7 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		e.cpu.WithLabelValues("rest").Add(math.Max(0.0, cpuStat.IRQ+cpuStat.SoftIRQ+cpuStat.Steal+cpuStat.Guest+cpuStat.GuestNice))
 		e.cpu.Collect(ch)
 	}
-	Info.Println("collect duration for node_cpu:", time.Since(t))
+	Debug.Println("collect duration for node_cpu:", time.Since(t))
 
 	t = time.Now()
 	memStat, err := e.proc.Meminfo()
@@ -146,7 +125,7 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		e.swap.WithLabelValues("used").Set(float64(*memStat.SwapTotal - *memStat.SwapFree))
 		e.swap.Collect(ch)
 	}
-	Info.Println("collect duration for node_mem/node_swap:", time.Since(t))
+	Debug.Println("collect duration for node_mem/node_swap:", time.Since(t))
 
 	t = time.Now()
 	netStats, err := e.updateNetStats()
@@ -161,22 +140,24 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		}
 		e.net.Collect(ch)
 	}
-	Info.Println("collect duration for node_net:", time.Since(t))
+	Debug.Println("collect duration for node_net:", time.Since(t))
 
 	t = time.Now()
 	diskStats, err := readDiskStats()
 	if err != nil {
 		Error.Println(err)
 	} else {
-		for device, stat := range diskStats {
-			e.disk.WithLabelValues(device, "total").Set(float64(stat.Total))
-			e.disk.WithLabelValues(device, "used").Set(float64(stat.Total - stat.Available))
-			e.disk.WithLabelValues(device, "free").Set(float64(stat.Free))
-			e.disk.WithLabelValues(device, "available").Set(float64(stat.Available))
+		for disk, stat := range diskStats {
+			dev := disk.device
+			mount := disk.mount
+			e.disk.WithLabelValues(dev, mount, "total").Set(float64(stat.Total))
+			e.disk.WithLabelValues(dev, mount, "used").Set(float64(stat.Total - stat.Available))
+			e.disk.WithLabelValues(dev, mount, "free").Set(float64(stat.Free))
+			e.disk.WithLabelValues(dev, mount, "available").Set(float64(stat.Available))
 		}
 		e.disk.Collect(ch)
 	}
-	Info.Println("collect duration for node_disk:", time.Since(t))
+	Debug.Println("collect duration for node_disk:", time.Since(t))
 
 	t = time.Now()
 	ioStats, err := e.updateDiskIOStats()
@@ -191,23 +172,7 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		}
 		e.diskio.Collect(ch)
 	}
-	Info.Println("collect duration for node_diskio:", time.Since(t))
-
-	t = time.Now()
-	serviceStats, err := readSystemd(context.TODO(), e.services)
-	if err != nil {
-		Error.Println(err)
-	} else {
-		for _, stat := range serviceStats {
-			active := 0.0
-			if stat.ActiveState == "active" || stat.ActiveState == "reloading" {
-				active = 1.0
-			}
-			e.service.WithLabelValues(stat.Id).Set(active)
-		}
-		e.service.Collect(ch)
-	}
-	Info.Println("collect duration for node_service:", time.Since(t))
+	Debug.Println("collect duration for node_diskio:", time.Since(t))
 }
 
 func (e *Node) updateCPUStat() (procfs.CPUStat, error) {
@@ -316,13 +281,18 @@ func (e *Node) updateDiskIOStats() ([]blockdevice.Diskstats, error) {
 	return diff, nil
 }
 
+type disk struct {
+	device string
+	mount  string
+}
+
 type diskStat struct {
 	Total     uint64
 	Free      uint64
 	Available uint64
 }
 
-func readDiskStats() (map[string]diskStat, error) {
+func readDiskStats() (map[disk]diskStat, error) {
 	mounts, err := os.Open("/proc/mounts")
 	if err != nil {
 		return nil, err
@@ -351,49 +321,17 @@ func readDiskStats() (map[string]diskStat, error) {
 		return nil, err
 	}
 
-	stats := map[string]diskStat{}
+	stats := map[disk]diskStat{}
 	for i, device := range devices {
 		buf := unix.Statfs_t{}
 		if err := unix.Statfs(mountpoints[i], &buf); err != nil {
 			return nil, err
 		}
-		stats[device[5:]] = diskStat{
-			Total:     uint64(buf.Bsize) * buf.Blocks / 1024,
-			Free:      uint64(buf.Bsize) * buf.Bfree / 1024,
-			Available: uint64(buf.Bsize) * buf.Bavail / 1024,
+		stats[disk{device[5:], mountpoints[i]}] = diskStat{
+			Total:     uint64(buf.Bsize) * buf.Blocks / 1000,
+			Free:      uint64(buf.Bsize) * buf.Bfree / 1000,
+			Available: uint64(buf.Bsize) * buf.Bavail / 1000,
 		}
 	}
 	return stats, nil
-}
-
-type systemdUnit struct {
-	Id          string
-	ActiveState string
-}
-
-func readSystemd(ctx context.Context, services []string) ([]systemdUnit, error) {
-	conn, err := dbus.NewWithContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	units := []systemdUnit{}
-	for _, service := range services {
-		props, err := conn.GetUnitPropertiesContext(ctx, service+".service")
-		if err != nil {
-			return nil, err
-		}
-		unit := systemdUnit{}
-		if s, ok := props["Id"].(string); ok {
-			if strings.HasSuffix(s, ".service") {
-				s = s[:len(s)-8]
-			}
-			unit.Id = s
-		}
-		if s, ok := props["ActiveState"].(string); ok {
-			unit.ActiveState = s
-		}
-		units = append(units, unit)
-	}
-	return units, nil
 }

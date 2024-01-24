@@ -2,40 +2,92 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 )
 
-func ListenAndServe(host string) error {
+func ParseURI(uri string) (string, string, error) {
+	if strings.HasPrefix(uri, "unix:") {
+		uri = uri[5:]
+		if strings.HasPrefix(uri, "//") {
+			uri = uri[2:]
+		}
+		if !path.IsAbs(uri) {
+			return "", "", fmt.Errorf("Unix socket path is not an absolute path")
+		}
+		return "unix", uri, nil
+	}
+
+	if strings.HasPrefix(uri, "tcp://") {
+		uri = uri[6:]
+	}
+	return "tcp", uri, nil
+}
+
+func ListenAndServe(uri, tlsCrt, tlsKey string) error {
+	scheme, host, err := ParseURI(uri)
+	if err != nil {
+		return err
+	}
+
 	var listener net.Listener
-	var err error
-	if strings.HasPrefix(host, "unix://") {
-		path := host[7:]
-		if _, err := os.Stat(path); err == nil {
-			if err := os.Remove(path); err != nil {
+	if scheme == "unix" {
+		if _, err := os.Stat(host); err == nil {
+			Info.Println("removing existing file", host)
+			if err := os.Remove(host); err != nil {
 				return err
 			}
 		}
-		listener, err = net.Listen("unix", host[7:])
-		if err != nil {
-			return err
-		} else if os.Chmod(path, 0770); err != nil {
-			return err
-		}
-	} else {
-		listener, err = net.Listen("tcp", host)
+		listener, err = net.Listen("unix", host)
 		if err != nil {
 			return err
 		}
+		Info.Println("setting file permissions to 0770 on", host)
+		if os.Chmod(host, 0770); err != nil {
+			return err
+		}
+		Info.Println("listening on Unix socket", host)
+		return (&http.Server{Addr: host, Handler: nil}).Serve(listener)
 	}
-	return (&http.Server{Addr: host, Handler: nil}).Serve(listener)
 
+	if tlsCrt != "" && tlsKey != "" {
+		Info.Println("listening on", host, "with TLS")
+		return http.ListenAndServeTLS(host, tlsCrt, tlsKey, nil)
+	}
+	Info.Println("listening on", host)
+	return http.ListenAndServe(host, nil)
+}
+
+func BasicAuth(next http.Handler, users map[string]string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if ok {
+			for authUsername, authPassword := range users {
+				authUsernameHash := sha256.Sum256([]byte(authUsername))
+				authPasswordHash := sha256.Sum256([]byte(authPassword))
+				usernameHash := sha256.Sum256([]byte(username))
+				passwordHash := sha256.Sum256([]byte(password))
+				usernameCompare := subtle.ConstantTimeCompare(usernameHash[:], authUsernameHash[:])
+				passwordCompare := subtle.ConstantTimeCompare(passwordHash[:], authPasswordHash[:])
+				if usernameCompare == 1 && passwordCompare == 1 {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+		}
+
+		w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	})
 }
 
 type Client struct {

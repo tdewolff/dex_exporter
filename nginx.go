@@ -10,26 +10,38 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+type NginxOptions struct {
+	URI string `desc:"A URI or unix socket path for scraping NGINX metrics. The stub_status page must be available through the URI."`
+}
+
 type Nginx struct {
-	client  *Client
-	reqStat uint64
+	client *Client
+	stats  nginxStats
 
 	req prometheus.Counter
 }
 
-func NewNginx(url string) (*Nginx, error) {
-	client, err := newClient(url)
+func NewNginx(opts NginxOptions) (*Nginx, error) {
+	client, err := newClient(opts.URI)
 	if err != nil {
 		return nil, err
 	}
-	return &Nginx{
+	e := &Nginx{
 		client: client,
 
 		req: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "nginx_requests_total",
 			Help: "Total number of requests.",
 		}),
-	}, nil
+	}
+	if _, err = e.updateStats(); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+func (e *Nginx) Close() error {
+	return nil
 }
 
 func (e *Nginx) Describe(ch chan<- *prometheus.Desc) {
@@ -38,14 +50,14 @@ func (e *Nginx) Describe(ch chan<- *prometheus.Desc) {
 
 func (e *Nginx) Collect(ch chan<- prometheus.Metric) {
 	t := time.Now()
-	req, err := e.updateReq()
+	stats, err := e.updateStats()
 	if err != nil {
 		Error.Println(err)
 	} else {
-		e.req.Add(math.Max(0.0, float64(req)))
+		e.req.Add(math.Max(0.0, float64(stats.Requests)))
 		e.req.Collect(ch)
 	}
-	Info.Println("collect duration for nginx:", time.Since(t))
+	Debug.Println("collect duration for nginx:", time.Since(t))
 }
 
 const templateMetrics string = `Active connections: %d
@@ -54,39 +66,37 @@ server accepts handled requests
 Reading: %d Writing: %d Waiting: %d
 `
 
-type StubStats struct {
-	Connections StubConnections
-	Requests    uint64
-}
-
-type StubConnections struct {
+type nginxStats struct {
 	Active   uint64
 	Accepted uint64
 	Handled  uint64
+	Requests uint64
 	Reading  uint64
 	Writing  uint64
 	Waiting  uint64
 }
 
-func (e *Nginx) updateReq() (uint64, error) {
+func (e *Nginx) updateStats() (nginxStats, error) {
 	b, err := e.client.Get(context.TODO())
 	if err != nil {
-		return 0, err
+		return nginxStats{}, err
 	}
 
-	s := StubStats{}
+	cur := nginxStats{}
 	if _, err := fmt.Fscanf(bytes.NewReader(b), templateMetrics,
-		&s.Connections.Active,
-		&s.Connections.Accepted,
-		&s.Connections.Handled,
-		&s.Requests,
-		&s.Connections.Reading,
-		&s.Connections.Writing,
-		&s.Connections.Waiting); err != nil {
-		return 0, fmt.Errorf("failed to scan template metrics: %w", err)
+		&cur.Active,
+		&cur.Accepted,
+		&cur.Handled,
+		&cur.Requests,
+		&cur.Reading,
+		&cur.Writing,
+		&cur.Waiting); err != nil {
+		return nginxStats{}, fmt.Errorf("failed to scan template metrics: %w", err)
 	}
 
-	diff := s.Requests - e.reqStat
-	e.reqStat = s.Requests
+	diff := cur
+	diff.Handled -= e.stats.Handled
+	diff.Requests -= e.stats.Requests
+	e.stats = cur
 	return diff, nil
 }
