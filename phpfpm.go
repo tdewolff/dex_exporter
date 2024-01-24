@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,12 +15,12 @@ import (
 
 type PHPFPMOptions struct {
 	URI      string `desc:"A URI or unix socket path for connecting to the PHP-FPM server."`
-	Filename string `desc:"Filename that exposes the PHP-FPM metrics."`
+	Filepath string `desc:"Filepath that exposes the PHP-FPM metrics."`
 }
 
 type PHPFPM struct {
 	scheme, host string
-	filename     string
+	filepath     string
 	stats        phpfpmStats
 
 	mem        *prometheus.GaugeVec
@@ -32,10 +33,13 @@ func NewPHPFPM(opts PHPFPMOptions) (*PHPFPM, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := os.Stat(opts.Filepath); err != nil {
+		return nil, err
+	}
 	e := &PHPFPM{
 		scheme:   scheme,
 		host:     host,
-		filename: opts.Filename,
+		filepath: opts.Filepath,
 		stats:    phpfpmStats{},
 
 		mem: prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -103,8 +107,8 @@ func (e *PHPFPM) updateStats() (phpfpmStats, error) {
 	defer client.Close()
 
 	env := map[string]string{}
-	env["SCRIPT_FILENAME"] = e.filename
-	env["SCRIPT_NAME"] = e.filename
+	env["SCRIPT_FILENAME"] = e.filepath
+	env["SCRIPT_NAME"] = e.filepath
 
 	resp, err := client.Get(env)
 	if err != nil {

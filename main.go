@@ -170,7 +170,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer phpfpm.Close()
-		exporter.AddCollector(phpfpm, "phpfpm")
+		exporter.AddCollector(phpfpm, "php-fpm")
 	}
 
 	registry := prometheus.NewRegistry()

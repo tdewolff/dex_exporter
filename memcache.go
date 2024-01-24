@@ -33,13 +33,12 @@ func NewMemcache(opts MemcacheOptions) (*Memcache, error) {
 			if strings.HasPrefix(uri, "//") {
 				uri = uri[2:]
 			}
-			info, err := os.Stat(uri)
-			if err != nil {
+			if strings.ContainsRune(uri, '*') {
+				uriGlobs = append(uriGlobs, uri)
+			} else if info, err := os.Stat(uri); err != nil {
 				return nil, err
 			} else if info.IsDir() {
 				uriGlobs = append(uriGlobs, path.Join(uri, "*"))
-			} else if strings.ContainsRune(uri, '*') {
-				uriGlobs = append(uriGlobs, uri)
 			} else {
 				uris = append(uris, uri)
 			}
@@ -106,7 +105,7 @@ func (e *Memcache) updateStats() (map[string]memcacheStats, error) {
 	}
 	stats, err := client.Stats()
 	if err != nil {
-		//client.Close()
+		//client.Close() // TODO
 		return nil, err
 		//} else if err := client.Close(); err != nil {
 		//	return nil, err
