@@ -43,9 +43,7 @@ func NewRedis(opts RedisOptions) (*Redis, error) {
 			Help: "Key hits or misses.",
 		}, []string{"type"}),
 	}
-	if _, err = e.updateStats(); err != nil {
-		return nil, err
-	}
+	e.updateStats()
 	return e, nil
 }
 
@@ -97,6 +95,10 @@ func (e *Redis) updateStats() (redisStats, error) {
 	for _, line := range strings.Split(string(info), "\n") {
 		line = strings.TrimSpace(line)
 		split := strings.SplitN(line, ":", 2)
+		if len(split) != 2 {
+			continue
+		}
+
 		key, val := split[0], split[1]
 		switch key {
 		case "used_memory":

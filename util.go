@@ -95,8 +95,8 @@ type Client struct {
 	uri    string
 }
 
-func newClient(dst string) (*Client, error) {
-	u, err := url.Parse(dst)
+func newClient(uri string) (*Client, error) {
+	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,9 @@ func newClient(dst string) (*Client, error) {
 			u.Host += ":80"
 		} else if u.Scheme == "https" {
 			u.Host += ":443"
-		} else if u.Scheme != "unix" {
+		} else if u.Scheme == "unix" {
+			uri = "http://localhost" + u.Path
+		} else {
 			return nil, fmt.Errorf("unsupported protocol: %v", u.Scheme)
 		}
 	}
@@ -129,12 +131,13 @@ func newClient(dst string) (*Client, error) {
 				return http.ErrUseLastResponse // don't follow redirects
 			},
 		},
-		uri: u.Path,
+		uri: uri,
 	}, nil
 }
 
 func (c *Client) Get(ctx context.Context) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost"+c.uri, nil)
+	fmt.Println(c.uri)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.uri, nil)
 	if err != nil {
 		return nil, err
 	}

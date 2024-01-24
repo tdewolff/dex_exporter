@@ -2,6 +2,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grobie/gomemcache/memcache"
@@ -21,6 +22,11 @@ type Memcache struct {
 }
 
 func NewMemcache(opts MemcacheOptions) (*Memcache, error) {
+	if strings.HasPrefix(opts.URI, "unix://") {
+		opts.URI = opts.URI[7:]
+	} else if strings.HasPrefix(opts.URI, "unix:") {
+		opts.URI = opts.URI[5:]
+	}
 	client, err := memcache.New(opts.URI)
 	if err != nil {
 		return nil, err
@@ -38,9 +44,7 @@ func NewMemcache(opts MemcacheOptions) (*Memcache, error) {
 			Help: "Key hits or misses.",
 		}, []string{"type", "server"}),
 	}
-	if _, err = e.updateStats(); err != nil {
-		return nil, err
-	}
+	e.updateStats()
 	return e, nil
 }
 

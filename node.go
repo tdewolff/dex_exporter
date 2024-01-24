@@ -69,13 +69,9 @@ func NewNode() (*Node, error) {
 			Help: "Hard disk time in seconds.",
 		}, []string{"device", "type"}),
 	}
-	if _, err = e.updateCPUStat(); err != nil {
-		return nil, err
-	} else if _, err = e.updateNetStats(); err != nil {
-		return nil, err
-	} else if _, err = e.updateDiskIOStats(); err != nil {
-		return nil, err
-	}
+	e.updateCPUStat()
+	e.updateNetStats()
+	e.updateDiskIOStats()
 	return e, nil
 }
 

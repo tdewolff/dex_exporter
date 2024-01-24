@@ -314,8 +314,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	Info.Println("collect duration for node_service:", time.Since(t))
 
 	wg := sync.WaitGroup{}
-	for i, collector := range e.collectors {
-		fmt.Printf("%d %x %x\n", i, collector.services, activeServices)
+	for _, collector := range e.collectors {
 		if collector.services&activeServices == activeServices {
 			wg.Add(1)
 			go func(collector prometheus.Collector) {

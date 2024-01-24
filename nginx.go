@@ -34,9 +34,7 @@ func NewNginx(opts NginxOptions) (*Nginx, error) {
 			Help: "Total number of requests.",
 		}),
 	}
-	if _, err = e.updateStats(); err != nil {
-		return nil, err
-	}
+	e.updateStats()
 	return e, nil
 }
 
@@ -91,6 +89,7 @@ func (e *Nginx) updateStats() (nginxStats, error) {
 		&cur.Reading,
 		&cur.Writing,
 		&cur.Waiting); err != nil {
+		Debug.Printf("data from stub_status:\n%v", string(b))
 		return nginxStats{}, fmt.Errorf("failed to scan template metrics: %w", err)
 	}
 
