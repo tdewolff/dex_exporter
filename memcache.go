@@ -1,11 +1,7 @@
 package main
 
 import (
-	"os"
-	"path"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/grobie/gomemcache/memcache"
@@ -17,39 +13,21 @@ type MemcacheOptions struct {
 }
 
 type Memcache struct {
-	uris     []string
-	uriGlobs []string
-	stats    map[string]memcacheStats
+	uris  URIGlobs
+	stats map[string]memcacheStats
 
 	mem *prometheus.GaugeVec
 	key *prometheus.CounterVec
 }
 
 func NewMemcache(opts MemcacheOptions) (*Memcache, error) {
-	var uris, uriGlobs []string
-	for i := range opts.URI {
-		if strings.HasPrefix(opts.URI[i], "unix:") {
-			uri := opts.URI[i][7:]
-			if strings.HasPrefix(uri, "//") {
-				uri = uri[2:]
-			}
-			if strings.ContainsRune(uri, '*') {
-				uriGlobs = append(uriGlobs, uri)
-			} else if info, err := os.Stat(uri); err != nil {
-				return nil, err
-			} else if info.IsDir() {
-				uriGlobs = append(uriGlobs, path.Join(uri, "*"))
-			} else {
-				uris = append(uris, uri)
-			}
-		} else {
-			uris = append(uris, opts.URI[i])
-		}
+	uris, err := ParseURIGlobs(opts.URI)
+	if err != nil {
+		return nil, err
 	}
 	e := &Memcache{
-		uris:     uris,
-		uriGlobs: uriGlobs,
-		stats:    map[string]memcacheStats{},
+		uris:  uris,
+		stats: map[string]memcacheStats{},
 
 		mem: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "memcache_mem_bytes",
@@ -99,7 +77,7 @@ type memcacheStats struct {
 }
 
 func (e *Memcache) updateStats() (map[string]memcacheStats, error) {
-	client, err := memcache.New(e.URIs()...)
+	client, err := memcache.New(e.uris.Get()...)
 	if err != nil {
 		return nil, err
 	}
@@ -133,19 +111,6 @@ func (e *Memcache) updateStats() (map[string]memcacheStats, error) {
 		diffs[name] = diff
 	}
 	return diffs, nil
-}
-
-func (e *Memcache) URIs() []string {
-	uris := e.uris
-	for _, uriGlob := range e.uriGlobs {
-		matches, err := filepath.Glob(uriGlob)
-		if err != nil {
-			Warning.Printf("memcache: uri %v: %v", uriGlob, err)
-			continue
-		}
-		uris = append(uris, matches...)
-	}
-	return uris
 }
 
 func memcacheGetUint64(stats map[string]string, key string) uint64 {

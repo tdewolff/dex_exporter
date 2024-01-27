@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -33,7 +34,53 @@ func ParseURI(uri string) (string, string, error) {
 	return "tcp", uri, nil
 }
 
-func ListenAndServe(uri, tlsCrt, tlsKey string) error {
+type URIGlobs struct {
+	literals []string
+	globs    []string
+}
+
+func ParseURIGlobs(uris []string) (URIGlobs, error) {
+	var literals, globs []string
+	for i := range uris {
+		uri := uris[i]
+		scheme, _, err := ParseURI(uri)
+		if err != nil {
+			return URIGlobs{}, err
+		}
+		if scheme == "unix" {
+			if strings.ContainsRune(uri, '*') {
+				globs = append(globs, uri)
+			} else if info, err := os.Stat(uri); err != nil {
+				return URIGlobs{}, err
+			} else if info.IsDir() {
+				globs = append(globs, path.Join(uri, "*"))
+			} else {
+				literals = append(literals, uri)
+			}
+		} else {
+			literals = append(literals, uris[i])
+		}
+	}
+	for _, uriGlob := range globs {
+		if _, err := filepath.Glob(uriGlob); err != nil {
+			return URIGlobs{}, err
+		}
+	}
+	fmt.Println(literals, globs)
+	return URIGlobs{literals, globs}, nil
+}
+
+func (z URIGlobs) Get() []string {
+	uris := z.literals
+	for _, uriGlob := range z.globs {
+		matches, _ := filepath.Glob(uriGlob)
+		fmt.Println(uriGlob, "=>", matches)
+		uris = append(uris, matches...)
+	}
+	return uris
+}
+
+func ListenAndServe(uri, tlsCert, tlsKey string) error {
 	scheme, host, err := ParseURI(uri)
 	if err != nil {
 		return err
@@ -59,9 +106,9 @@ func ListenAndServe(uri, tlsCrt, tlsKey string) error {
 		return (&http.Server{Addr: host, Handler: nil}).Serve(listener)
 	}
 
-	if tlsCrt != "" && tlsKey != "" {
+	if tlsCert != "" && tlsKey != "" {
 		Info.Println("listening on", host, "with TLS")
-		return http.ListenAndServeTLS(host, tlsCrt, tlsKey, nil)
+		return http.ListenAndServeTLS(host, tlsCert, tlsKey, nil)
 	}
 	Info.Println("listening on", host)
 	return http.ListenAndServe(host, nil)

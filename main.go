@@ -163,7 +163,7 @@ func main() {
 	}
 
 	// phpfpm exporter
-	if phpfpmOptions.URI != "" {
+	if 0 < len(phpfpmOptions.StatusURI) || phpfpmOptions.OPcacheURI != "" {
 		phpfpm, err := NewPHPFPM(phpfpmOptions)
 		if err != nil {
 			Error.Println(err)
