@@ -89,6 +89,7 @@ func (e *Node) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (e *Node) Collect(ch chan<- prometheus.Metric) {
+	t0 := time.Now()
 	t := time.Now()
 	cpuStat, err := e.updateCPUStat()
 	if err != nil {
@@ -169,6 +170,7 @@ func (e *Node) Collect(ch chan<- prometheus.Metric) {
 		e.diskio.Collect(ch)
 	}
 	Debug.Println("collect duration for node_diskio:", time.Since(t))
+	Debug.Println("collect duration for node:", time.Since(t0))
 }
 
 func (e *Node) updateCPUStat() (procfs.CPUStat, error) {

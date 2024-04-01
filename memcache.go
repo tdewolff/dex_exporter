@@ -2,6 +2,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grobie/gomemcache/memcache"
@@ -77,7 +78,13 @@ type memcacheStats struct {
 }
 
 func (e *Memcache) updateStats() (map[string]memcacheStats, error) {
-	client, err := memcache.New(e.uris.Get()...)
+	uris := e.uris.Get()
+	for i := range uris {
+		if strings.HasPrefix(uris[i], "unix://") {
+			uris[i] = uris[i][7:]
+		}
+	}
+	client, err := memcache.New(uris...)
 	if err != nil {
 		return nil, err
 	}

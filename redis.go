@@ -48,7 +48,9 @@ func NewRedis(opts RedisOptions) (*Redis, error) {
 }
 
 func (e *Redis) Close() error {
-	return e.client.Close()
+	if e.client != nil {
+		return e.client.Close()
+	}
 }
 
 func (e *Redis) Describe(ch chan<- *prometheus.Desc) {
@@ -81,8 +83,16 @@ type redisStats struct {
 }
 
 func (e *Redis) updateStats() (redisStats, error) {
+	if e.client == nil {
+		var err error
+		e.client, err = redis.Dial(scheme, host)
+		if err != nil {
+			return redisStats, err
+		}
+	}
 	reply, err := e.client.Do("INFO", "ALL")
 	if err != nil {
+		e.client = nil
 		return redisStats{}, err
 	}
 

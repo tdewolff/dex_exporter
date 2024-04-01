@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -43,17 +44,17 @@ func ParseURIGlobs(uris []string) (URIGlobs, error) {
 	var literals, globs []string
 	for i := range uris {
 		uri := uris[i]
-		scheme, _, err := ParseURI(uri)
+		scheme, host, err := ParseURI(uri)
 		if err != nil {
 			return URIGlobs{}, err
 		}
 		if scheme == "unix" {
 			if strings.ContainsRune(uri, '*') {
-				globs = append(globs, uri)
-			} else if info, err := os.Stat(uri); err != nil {
+				globs = append(globs, host)
+			} else if info, err := os.Stat(host); err != nil {
 				return URIGlobs{}, err
 			} else if info.IsDir() {
-				globs = append(globs, path.Join(uri, "*"))
+				globs = append(globs, path.Join(host, "*"))
 			} else {
 				literals = append(literals, uri)
 			}
@@ -66,7 +67,6 @@ func ParseURIGlobs(uris []string) (URIGlobs, error) {
 			return URIGlobs{}, err
 		}
 	}
-	fmt.Println(literals, globs)
 	return URIGlobs{literals, globs}, nil
 }
 
@@ -74,8 +74,9 @@ func (z URIGlobs) Get() []string {
 	uris := z.literals
 	for _, uriGlob := range z.globs {
 		matches, _ := filepath.Glob(uriGlob)
-		fmt.Println(uriGlob, "=>", matches)
-		uris = append(uris, matches...)
+		for _, match := range matches {
+			uris = append(uris, "unix://"+match)
+		}
 	}
 	return uris
 }
@@ -198,4 +199,19 @@ func (c *Client) Get(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	return body, nil
+}
+
+// intDiff returns the difference between two integers when it may get wrapped around by an unknown integer size (8, 16, 32, or 64 bits), either signed or unsigned
+func intDiff(prev, cur uint64) uint64 {
+	if prev <= cur {
+		return cur - prev
+	}
+
+	limits := []uint64{math.MaxInt8, math.MaxUint8, math.MaxInt16, math.MaxUint16, math.MaxInt32, math.MaxUint32, math.MaxInt64}
+	for _, lim := range limits {
+		if prev <= lim {
+			return (lim - prev) + 1 + cur
+		}
+	}
+	return cur - prev // overflows automatically
 }

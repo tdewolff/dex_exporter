@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"strconv"
 	"strings"
@@ -64,7 +63,7 @@ func NewPHPFPM(opts PHPFPMOptions) (*PHPFPM, error) {
 			Help: "Key hits or misses.",
 		}, []string{"type"}),
 	}
-	e.updateStats()
+	e.updateOPcacheStats()
 	return e, nil
 }
 
@@ -73,6 +72,7 @@ func (e *PHPFPM) Close() error {
 }
 
 func (e *PHPFPM) Describe(ch chan<- *prometheus.Desc) {
+	e.proc.Describe(ch)
 	e.opcacheMem.Describe(ch)
 	e.opcacheStringsMem.Describe(ch)
 	e.opcacheKey.Describe(ch)
@@ -88,8 +88,8 @@ func (e *PHPFPM) Collect(ch chan<- prometheus.Metric) {
 		for pool, stat := range stats {
 			e.proc.WithLabelValues("active", pool).Set(float64(stat.ActiveProcesses))
 			e.proc.WithLabelValues("total", pool).Set(float64(stat.TotalProcesses))
-			e.proc.Collect(ch)
 		}
+		e.proc.Collect(ch)
 	}
 	Debug.Println("collect duration for phpfpm proc:", time.Since(t))
 
@@ -127,7 +127,20 @@ func (e *PHPFPM) updateStats() (map[string]phpfpmStats, error) {
 			return nil, err
 		}
 
-		fmt.Println(string(content))
+		// pool:                 name
+		// process manager:      static
+		// start time:           24/Jan/2024:15:12:49 +0100
+		// start since:          213812
+		// accepted conn:        30102
+		// listen queue:         0
+		// max listen queue:     0
+		// listen queue len:     0
+		// idle processes:       31
+		// active processes:     1
+		// total processes:      32
+		// max active processes: 15
+		// max children reached: 0
+		// slow requests:        0
 
 		pool := ""
 		cur := phpfpmStats{}
@@ -136,7 +149,7 @@ func (e *PHPFPM) updateStats() (map[string]phpfpmStats, error) {
 			line := scanner.Text()
 			if colon := strings.IndexByte(line, ':'); colon != -1 {
 				key := line[:colon]
-				val := strings.TrimSpace(line[colon:])
+				val := strings.TrimSpace(line[colon+1:])
 				switch key {
 				case "pool":
 					pool = val

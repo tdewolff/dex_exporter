@@ -44,10 +44,10 @@ type WebConfig struct {
 }
 
 var (
-	Error   *log.Logger
-	Warning *log.Logger
-	Info    *log.Logger
-	Debug   *log.Logger
+	Error   = log.New(ioutil.Discard, "", 0)
+	Warning = log.New(ioutil.Discard, "", 0)
+	Info    = log.New(ioutil.Discard, "", 0)
+	Debug   = log.New(ioutil.Discard, "", 0)
 )
 
 func main() {
@@ -92,23 +92,15 @@ func main() {
 	}
 	if 1 <= verbose {
 		Error = log.New(os.Stderr, "ERROR: ", 0)
-	} else {
-		Error = log.New(ioutil.Discard, "", 0)
-	}
-	if 2 <= verbose {
-		Warning = log.New(os.Stderr, "WARNING: ", 0)
-	} else {
-		Warning = log.New(ioutil.Discard, "", 0)
-	}
-	if 3 <= verbose {
-		Info = log.New(os.Stderr, "INFO: ", 0)
-	} else {
-		Info = log.New(ioutil.Discard, "", 0)
-	}
-	if 4 <= verbose {
-		Debug = log.New(os.Stderr, "DEBUG: ", 0)
-	} else {
-		Debug = log.New(ioutil.Discard, "", 0)
+		if 2 <= verbose {
+			Warning = log.New(os.Stderr, "WARNING: ", 0)
+			if 3 <= verbose {
+				Info = log.New(os.Stderr, "INFO: ", 0)
+				if 4 <= verbose {
+					Debug = log.New(os.Stderr, "DEBUG: ", 0)
+				}
+			}
+		}
 	}
 
 	// register all exporters
