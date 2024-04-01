@@ -15,8 +15,9 @@ type RedisOptions struct {
 }
 
 type Redis struct {
-	client redis.Conn
-	stats  redisStats
+	client       redis.Conn
+	scheme, host string
+	stats        redisStats
 
 	mem *prometheus.GaugeVec
 	key *prometheus.CounterVec
@@ -33,6 +34,8 @@ func NewRedis(opts RedisOptions) (*Redis, error) {
 	}
 	e := &Redis{
 		client: client,
+		scheme: scheme,
+		host:   host,
 
 		mem: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "redis_mem_bytes",
@@ -51,6 +54,7 @@ func (e *Redis) Close() error {
 	if e.client != nil {
 		return e.client.Close()
 	}
+	return nil
 }
 
 func (e *Redis) Describe(ch chan<- *prometheus.Desc) {
@@ -85,9 +89,9 @@ type redisStats struct {
 func (e *Redis) updateStats() (redisStats, error) {
 	if e.client == nil {
 		var err error
-		e.client, err = redis.Dial(scheme, host)
+		e.client, err = redis.Dial(e.scheme, e.host)
 		if err != nil {
-			return redisStats, err
+			return redisStats{}, err
 		}
 	}
 	reply, err := e.client.Do("INFO", "ALL")

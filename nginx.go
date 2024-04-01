@@ -92,7 +92,6 @@ func (e *Nginx) updateStats() (nginxStats, error) {
 		Debug.Printf("data from stub_status:\n%v", string(b))
 		return nginxStats{}, fmt.Errorf("failed to scan template metrics: %w", err)
 	}
-	fmt.Println("cur", cur)
 
 	if cur.Accepted < e.stats.Accepted && cur.Handled < e.stats.Handled && cur.Requests < e.stats.Requests {
 		// nginx was reset
@@ -104,7 +103,6 @@ func (e *Nginx) updateStats() (nginxStats, error) {
 	diff.Accepted = intDiff(e.stats.Accepted, cur.Accepted)
 	diff.Handled = intDiff(e.stats.Handled, cur.Handled)
 	diff.Requests = intDiff(e.stats.Requests, cur.Requests)
-	fmt.Println("diff", diff)
 	e.stats = cur
 	return diff, nil
 }
