@@ -161,7 +161,7 @@ func (e *PHPFPM) updateStats() (map[string]phpfpmStats, error) {
 			}
 		}
 		if pool == "" {
-			Warning.Println("PHP-FPM status page pool name not found for %v")
+			Warning.Printf("PHP-FPM status page pool name not found for %v")
 		} else {
 			stats[pool] = cur
 		}

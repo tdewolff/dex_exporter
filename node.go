@@ -89,88 +89,168 @@ func (e *Node) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (e *Node) Collect(ch chan<- prometheus.Metric) {
-	t0 := time.Now()
 	t := time.Now()
+	metrics := e.Read()
+	e.cpu.WithLabelValues("system").Add(metrics.CPU.System)
+	e.cpu.WithLabelValues("user").Add(metrics.CPU.User)
+	e.cpu.WithLabelValues("iowait").Add(metrics.CPU.IOWait)
+	e.cpu.WithLabelValues("idle").Add(metrics.CPU.Idle)
+	e.cpu.WithLabelValues("rest").Add(metrics.CPU.Rest)
+	e.cpu.Collect(ch)
+
+	e.mem.WithLabelValues("total").Set(metrics.Mem.Total)
+	e.mem.WithLabelValues("used").Set(metrics.Mem.Used)
+	e.mem.WithLabelValues("free").Set(metrics.Mem.Free)
+	e.mem.WithLabelValues("shared").Set(metrics.Mem.Shared)
+	e.mem.WithLabelValues("buffers").Set(metrics.Mem.Buffers)
+	e.mem.WithLabelValues("cache").Set(metrics.Mem.Cache)
+	e.mem.WithLabelValues("available").Set(metrics.Mem.Available)
+	e.mem.Collect(ch)
+
+	e.swap.WithLabelValues("total").Set(metrics.Swap.Total)
+	e.swap.WithLabelValues("used").Set(metrics.Swap.Used)
+	e.swap.Collect(ch)
+
+	for _, item := range metrics.Net {
+		e.net.WithLabelValues(item.Interface, "rx").Add(item.Received)
+		e.net.WithLabelValues(item.Interface, "tx").Add(item.Transmitted)
+	}
+	e.net.Collect(ch)
+
+	for _, item := range metrics.Disk {
+		e.disk.WithLabelValues(item.Device, item.Mount, "total").Set(item.Total)
+		e.disk.WithLabelValues(item.Device, item.Mount, "used").Set(item.Used)
+		e.disk.WithLabelValues(item.Device, item.Mount, "free").Set(item.Free)
+		e.disk.WithLabelValues(item.Device, item.Mount, "available").Set(item.Available)
+	}
+	e.disk.Collect(ch)
+
+	for _, item := range metrics.IO {
+		e.diskio.WithLabelValues(item.Device, "total").Add(item.Total)
+		e.diskio.WithLabelValues(item.Device, "read").Add(item.Read)
+		e.diskio.WithLabelValues(item.Device, "write").Add(item.Write)
+	}
+	e.diskio.Collect(ch)
+	Debug.Println("collect duration for node:", time.Since(t))
+}
+
+type NodeNetMetrics struct {
+	Interface   string
+	Received    float64
+	Transmitted float64
+}
+
+type NodeDiskMetrics struct {
+	Device    string
+	Mount     string
+	Total     float64
+	Used      float64
+	Free      float64
+	Available float64
+}
+
+type NodeIOMetrics struct {
+	Device string
+	Total  float64
+	Read   float64
+	Write  float64
+}
+
+type NodeMetrics struct {
+	CPU struct {
+		System float64
+		User   float64
+		IOWait float64
+		Idle   float64
+		Rest   float64
+	}
+	Mem struct {
+		Total     float64
+		Used      float64
+		Free      float64
+		Shared    float64
+		Buffers   float64
+		Cache     float64
+		Available float64
+	}
+	Swap struct {
+		Total float64
+		Used  float64
+	}
+	Net  []NodeNetMetrics
+	Disk []NodeDiskMetrics
+	IO   []NodeIOMetrics
+}
+
+func (e *Node) Read() NodeMetrics {
+	metrics := NodeMetrics{}
+
 	cpuStat, err := e.updateCPUStat()
 	if err != nil {
 		Error.Println(err)
-	} else {
-		e.cpu.WithLabelValues("system").Add(math.Max(0.0, cpuStat.System))
-		e.cpu.WithLabelValues("user").Add(math.Max(0.0, cpuStat.User+cpuStat.Nice))
-		e.cpu.WithLabelValues("iowait").Add(math.Max(0.0, cpuStat.Iowait))
-		e.cpu.WithLabelValues("idle").Add(math.Max(0.0, cpuStat.Idle))
-		e.cpu.WithLabelValues("rest").Add(math.Max(0.0, cpuStat.IRQ+cpuStat.SoftIRQ+cpuStat.Steal+cpuStat.Guest+cpuStat.GuestNice))
-		e.cpu.Collect(ch)
 	}
-	Debug.Println("collect duration for node_cpu:", time.Since(t))
+	metrics.CPU.System = math.Max(0.0, cpuStat.System)
+	metrics.CPU.User = math.Max(0.0, cpuStat.User+cpuStat.Nice)
+	metrics.CPU.IOWait = math.Max(0.0, cpuStat.Iowait)
+	metrics.CPU.Idle = math.Max(0.0, cpuStat.Idle)
+	metrics.CPU.Rest = math.Max(0.0, cpuStat.IRQ+cpuStat.SoftIRQ+cpuStat.Steal+cpuStat.Guest+cpuStat.GuestNice)
 
-	t = time.Now()
 	memStat, err := e.proc.Meminfo()
 	if err != nil {
 		Error.Println(err)
-	} else {
-		e.mem.WithLabelValues("total").Set(float64(*memStat.MemTotal))
-		e.mem.WithLabelValues("used").Set(float64(*memStat.MemTotal - *memStat.MemAvailable))
-		e.mem.WithLabelValues("free").Set(float64(*memStat.MemFree))
-		e.mem.WithLabelValues("shared").Set(float64(*memStat.Shmem))
-		e.mem.WithLabelValues("buffers").Set(float64(*memStat.Buffers))
-		e.mem.WithLabelValues("cache").Set(float64(*memStat.Cached + *memStat.SReclaimable))
-		e.mem.WithLabelValues("available").Set(float64(*memStat.MemAvailable))
-		e.mem.Collect(ch)
-
-		e.swap.WithLabelValues("total").Set(float64(*memStat.SwapTotal))
-		e.swap.WithLabelValues("used").Set(float64(*memStat.SwapTotal - *memStat.SwapFree))
-		e.swap.Collect(ch)
 	}
-	Debug.Println("collect duration for node_mem/node_swap:", time.Since(t))
+	metrics.Mem.Total = float64(*memStat.MemTotal)
+	metrics.Mem.Used = float64(*memStat.MemTotal - *memStat.MemAvailable)
+	metrics.Mem.Free = float64(*memStat.MemFree)
+	metrics.Mem.Shared = float64(*memStat.Shmem)
+	metrics.Mem.Buffers = float64(*memStat.Buffers)
+	metrics.Mem.Cache = float64(*memStat.Cached + *memStat.SReclaimable)
+	metrics.Mem.Available = float64(*memStat.MemAvailable)
+	metrics.Swap.Total = float64(*memStat.SwapTotal)
+	metrics.Swap.Used = float64(*memStat.SwapTotal - *memStat.SwapFree)
 
-	t = time.Now()
 	netStats, err := e.updateNetStats()
 	if err != nil {
 		Error.Println(err)
-	} else {
-		for netif, stat := range netStats {
-			if netif != "lo" {
-				e.net.WithLabelValues(netif, "rx").Add(math.Max(0.0, float64(stat.RxBytes)))
-				e.net.WithLabelValues(netif, "tx").Add(math.Max(0.0, float64(stat.TxBytes)))
-			}
-		}
-		e.net.Collect(ch)
 	}
-	Debug.Println("collect duration for node_net:", time.Since(t))
+	for netif, stat := range netStats {
+		if netif != "lo" {
+			metrics.Net = append(metrics.Net, NodeNetMetrics{
+				Interface:   netif,
+				Received:    math.Max(0.0, float64(stat.RxBytes)),
+				Transmitted: math.Max(0.0, float64(stat.TxBytes)),
+			})
+		}
+	}
 
-	t = time.Now()
 	diskStats, err := readDiskStats()
 	if err != nil {
 		Error.Println(err)
-	} else {
-		for disk, stat := range diskStats {
-			dev := disk.device
-			mount := disk.mount
-			e.disk.WithLabelValues(dev, mount, "total").Set(float64(stat.Total))
-			e.disk.WithLabelValues(dev, mount, "used").Set(float64(stat.Total - stat.Available))
-			e.disk.WithLabelValues(dev, mount, "free").Set(float64(stat.Free))
-			e.disk.WithLabelValues(dev, mount, "available").Set(float64(stat.Available))
-		}
-		e.disk.Collect(ch)
 	}
-	Debug.Println("collect duration for node_disk:", time.Since(t))
+	for disk, stat := range diskStats {
+		metrics.Disk = append(metrics.Disk, NodeDiskMetrics{
+			Device:    disk.device,
+			Mount:     disk.mount,
+			Total:     float64(stat.Total),
+			Used:      float64(stat.Total - stat.Available),
+			Free:      float64(stat.Free),
+			Available: float64(stat.Available),
+		})
+	}
 
-	t = time.Now()
 	ioStats, err := e.updateDiskIOStats()
 	if err != nil {
 		Error.Println(err)
-	} else {
-		for _, stat := range ioStats {
-			device := stat.Info.DeviceName
-			e.diskio.WithLabelValues(device, "total").Add(float64(stat.IOStats.IOsTotalTicks) / 1000.0)
-			e.diskio.WithLabelValues(device, "read").Add(float64(stat.IOStats.ReadTicks) / 1000.0)
-			e.diskio.WithLabelValues(device, "write").Add(float64(stat.IOStats.WriteTicks) / 1000.0)
-		}
-		e.diskio.Collect(ch)
 	}
-	Debug.Println("collect duration for node_diskio:", time.Since(t))
-	Debug.Println("collect duration for node:", time.Since(t0))
+	for _, stat := range ioStats {
+		metrics.IO = append(metrics.IO, NodeIOMetrics{
+			Device: stat.Info.DeviceName,
+			Total:  float64(stat.IOStats.IOsTotalTicks) / 1000.0,
+			Read:   float64(stat.IOStats.ReadTicks) / 1000.0,
+			Write:  float64(stat.IOStats.WriteTicks) / 1000.0,
+		})
+	}
+	return metrics
 }
 
 func (e *Node) updateCPUStat() (procfs.CPUStat, error) {
