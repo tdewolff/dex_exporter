@@ -105,6 +105,8 @@ func main() {
 
 	// register all exporters
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	exporter, err := NewExporter(ctx)
 	if err != nil {
 		Error.Println(err)
@@ -168,10 +170,10 @@ func main() {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(exporter)
 
-	config := WebConfig{}
 	tlsCert, tlsKey := "", ""
 	basicAuthUsers := map[string]string{}
 	if webOptions.Config.File != "" {
+		config := WebConfig{}
 		b, err := os.ReadFile(webOptions.Config.File)
 		if err != nil {
 			Error.Println(err)
@@ -210,7 +212,6 @@ func main() {
 	if err := ListenAndServe(webOptions.ListenAddress, tlsCert, tlsKey); err != nil && err != http.ErrServerClosed {
 		Error.Println(err)
 	}
-	cancel()
 }
 
 type ServiceCollector struct {

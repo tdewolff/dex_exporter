@@ -30,20 +30,7 @@ type Node struct {
 }
 
 func NewNode() (*Node, error) {
-	proc, err := procfs.NewFS("/proc")
-	if err != nil {
-		return nil, err
-	}
-	blockdev, err := blockdevice.NewFS("/proc", "/sys")
-	if err != nil {
-		return nil, err
-	}
-
 	e := &Node{
-		proc:        proc,
-		blockdevice: blockdev,
-		diskioStats: map[string]blockdevice.IOStats{},
-
 		cpu: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "node_cpu_seconds_total",
 			Help: "Total CPU time in seconds.",
@@ -69,10 +56,27 @@ func NewNode() (*Node, error) {
 			Help: "Hard disk time in seconds.",
 		}, []string{"device", "type"}),
 	}
+	e.Init()
+	return e, nil
+}
+
+func (e *Node) Init() {
+	proc, err := procfs.NewFS("/proc")
+	if err != nil {
+		return nil, err
+	}
+	blockdev, err := blockdevice.NewFS("/proc", "/sys")
+	if err != nil {
+		return nil, err
+	}
+
+	e.proc = proc
+	e.blockdevice = blockdev
+	e.diskioStats = map[string]blockdevice.IOStats{}
+
 	e.updateCPUStat()
 	e.updateNetStats()
 	e.updateDiskIOStats()
-	return e, nil
 }
 
 func (e *Node) Close() error {
